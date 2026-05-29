@@ -27,12 +27,19 @@ public class AuthService {
             throw new RuntimeException("Email already registered");
         }
         Customer customer = new Customer(request.getName(), request.getEmail(), request.getPassword());
-        customer.setVerificationToken(UUID.randomUUID().toString());
-        customer.setEmailVerified(false);
-        Customer saved = customerRepository.save(customer);
 
-        emailService.sendVerificationEmail(saved.getEmail(), saved.getName(), saved.getVerificationToken());
-        return saved;
+        if (emailService.isMailReady()) {
+            // Email configured — require verification
+            customer.setVerificationToken(UUID.randomUUID().toString());
+            customer.setEmailVerified(false);
+            Customer saved = customerRepository.save(customer);
+            emailService.sendVerificationEmail(saved.getEmail(), saved.getName(), saved.getVerificationToken());
+            return saved;
+        } else {
+            // No email configured — auto-verify so users can login immediately
+            customer.setEmailVerified(true);
+            return customerRepository.save(customer);
+        }
     }
 
     public Customer loginCustomer(LoginRequest request) {

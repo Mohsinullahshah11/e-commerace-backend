@@ -25,8 +25,11 @@ public class AuthController {
         try {
             Customer customer = authService.registerCustomer(request);
             Map<String, Object> response = new HashMap<>();
-            response.put("message", "Registration successful! Check your email to verify your account.");
             response.put("email", customer.getEmail());
+            response.put("autoVerified", customer.isEmailVerified());
+            response.put("message", customer.isEmailVerified()
+                ? "Registration successful! You can now login."
+                : "Registration successful! Check your email to verify your account.");
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } catch (RuntimeException e) {
             Map<String, String> error = new HashMap<>();

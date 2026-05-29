@@ -22,7 +22,7 @@ public class EmailService {
     private String frontendUrl;
 
     // Returns false if mail credentials are not configured
-    private boolean isMailReady() {
+    public boolean isMailReady() {
         return mailSender != null
                 && mailUsername != null
                 && !mailUsername.isEmpty()
