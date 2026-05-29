@@ -58,6 +58,19 @@ public class AuthService {
         return admin;
     }
 
+    public void resendVerification(String email) {
+        Customer customer = customerRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("No account found with this email"));
+        if (customer.isEmailVerified()) {
+            throw new RuntimeException("Email is already verified. Please login.");
+        }
+        if (customer.getVerificationToken() == null) {
+            customer.setVerificationToken(UUID.randomUUID().toString());
+            customerRepository.save(customer);
+        }
+        emailService.sendVerificationEmail(customer.getEmail(), customer.getName(), customer.getVerificationToken());
+    }
+
     public void verifyEmail(String token) {
         Customer customer = customerRepository.findByVerificationToken(token)
                 .orElseThrow(() -> new RuntimeException("Invalid or expired verification link."));

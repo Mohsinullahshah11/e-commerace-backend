@@ -49,18 +49,21 @@ public class EmailService {
     }
 
     private void sendHtml(String to, String subject, String html) {
-        try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            helper.setFrom(mailUsername, "ShopEasy");
-            helper.setTo(to);
-            helper.setSubject(subject);
-            helper.setText(html, true);
-            mailSender.send(message);
-            System.out.println("[Email sent] " + subject + " → " + to);
-        } catch (Exception e) {
-            System.err.println("[Email failed] " + e.getMessage());
-        }
+        // Run in background thread so it never blocks the HTTP response
+        new Thread(() -> {
+            try {
+                MimeMessage message = mailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+                helper.setFrom(mailUsername, "ShopEasy");
+                helper.setTo(to);
+                helper.setSubject(subject);
+                helper.setText(html, true);
+                mailSender.send(message);
+                System.out.println("[Email sent] " + subject + " → " + to);
+            } catch (Exception e) {
+                System.err.println("[Email failed] " + e.getMessage());
+            }
+        }).start();
     }
 
     private String buildVerificationHtml(String name, String verifyUrl) {
