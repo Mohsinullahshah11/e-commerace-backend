@@ -94,6 +94,14 @@ public class StoreService {
                 .orElseThrow(() -> new RuntimeException("Store not found"));
     }
 
+    public Store updateProfile(Long storeId, String storeName, String storeDescription, String logoUrl) {
+        Store store = getStoreById(storeId);
+        if (storeName != null && !storeName.trim().isEmpty()) store.setStoreName(storeName.trim());
+        if (storeDescription != null) store.setStoreDescription(storeDescription.trim());
+        if (logoUrl != null) store.setLogoUrl(logoUrl.trim());
+        return storeRepository.save(store);
+    }
+
     public List<Store> getAllStores() {
         return storeRepository.findAll();
     }

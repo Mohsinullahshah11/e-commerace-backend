@@ -55,6 +55,22 @@ public class StoreController {
         }
     }
 
+    @PutMapping("/{storeId}/profile")
+    public ResponseEntity<?> updateProfile(@PathVariable Long storeId, @RequestBody Map<String, String> body) {
+        try {
+            Store store = storeService.updateProfile(storeId, body.get("storeName"), body.get("storeDescription"), body.get("logoUrl"));
+            Map<String, Object> res = new HashMap<>();
+            res.put("storeId", store.getId());
+            res.put("storeName", store.getStoreName());
+            res.put("storeDescription", store.getStoreDescription());
+            res.put("logoUrl", store.getLogoUrl());
+            res.put("status", store.getStatus());
+            return ResponseEntity.ok(res);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
+    }
+
     @GetMapping("/{storeId}/info")
     public ResponseEntity<?> getStoreInfo(@PathVariable Long storeId) {
         try {

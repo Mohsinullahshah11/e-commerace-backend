@@ -77,6 +77,10 @@ public class Product {
         return store != null ? store.getStoreName() : "ShopEasy Official";
     }
 
+    public Long getStoreId() {
+        return store != null ? store.getId() : null;
+    }
+
     public double getAvgRating() { return avgRating; }
     public void setAvgRating(double avgRating) { this.avgRating = avgRating; }
 
