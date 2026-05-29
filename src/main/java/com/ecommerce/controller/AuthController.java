@@ -74,6 +74,18 @@ public class AuthController {
         }
     }
 
+    // Emergency: force-verify any account by email (for stuck unverified accounts)
+    @PostMapping("/force-verify")
+    public ResponseEntity<?> forceVerify(@RequestBody Map<String, String> body) {
+        try {
+            String email = body.get("email");
+            com.ecommerce.model.Customer c = authService.forceVerify(email);
+            return ResponseEntity.ok(Map.of("message", "Account verified: " + c.getEmail()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
+    }
+
     @PostMapping("/resend-verification")
     public ResponseEntity<?> resendVerification(@RequestBody Map<String, String> body) {
         try {

@@ -65,6 +65,14 @@ public class AuthService {
         return admin;
     }
 
+    public Customer forceVerify(String email) {
+        Customer customer = customerRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("No account found with this email"));
+        customer.setEmailVerified(true);
+        customer.setVerificationToken(null);
+        return customerRepository.save(customer);
+    }
+
     public void resendVerification(String email) {
         Customer customer = customerRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("No account found with this email"));
