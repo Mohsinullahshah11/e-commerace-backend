@@ -2,68 +2,95 @@ package com.ecommerce.service;
 
 import com.ecommerce.model.Order;
 import com.ecommerce.model.OrderItem;
-import jakarta.mail.internet.MimeMessage;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 
 @Service
 public class EmailService {
 
-    @Autowired(required = false)
-    private JavaMailSender mailSender;
+    @Value("${brevo.api.key:}")
+    private String brevoApiKey;
 
-    @Value("${spring.mail.username:}")
-    private String mailUsername;
+    @Value("${brevo.sender.email:noreply@shopeasy.com}")
+    private String senderEmail;
 
     @Value("${app.frontend.url:http://localhost:5173}")
     private String frontendUrl;
 
-    // Returns false if mail credentials are not configured
     public boolean isMailReady() {
-        return mailSender != null
-                && mailUsername != null
-                && !mailUsername.isEmpty()
-                && !mailUsername.startsWith("your-");
+        return brevoApiKey != null && !brevoApiKey.isEmpty();
     }
 
     public void sendVerificationEmail(String toEmail, String name, String token) {
         if (!isMailReady()) {
-            System.out.println("[Email skipped] Verification email for " + toEmail + " — no mail credentials configured.");
+            System.out.println("[Email skipped] No BREVO_API_KEY configured — auto-verify instead.");
             return;
         }
         String verifyUrl = frontendUrl + "/verify-email?token=" + token;
-        String subject = "Verify your ShopEasy account";
-        sendHtml(toEmail, subject, buildVerificationHtml(name, verifyUrl));
+        sendAsync(toEmail, name, "Verify your ShopEasy account", buildVerificationHtml(name, verifyUrl));
     }
 
     public void sendOrderConfirmationEmail(String toEmail, String name, Order order) {
         if (!isMailReady()) {
-            System.out.println("[Email skipped] Order confirmation for " + toEmail + " — no mail credentials configured.");
+            System.out.println("[Email skipped] No BREVO_API_KEY configured.");
             return;
         }
-        String subject = "Order Confirmed — ShopEasy #" + order.getId();
-        sendHtml(toEmail, subject, buildOrderConfirmationHtml(name, order));
+        sendAsync(toEmail, name, "Order Confirmed — ShopEasy #" + order.getId(), buildOrderHtml(name, order));
     }
 
-    private void sendHtml(String to, String subject, String html) {
-        // Run in background thread so it never blocks the HTTP response
+    private void sendAsync(String toEmail, String toName, String subject, String html) {
         new Thread(() -> {
             try {
-                MimeMessage message = mailSender.createMimeMessage();
-                MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-                helper.setFrom(mailUsername, "ShopEasy");
-                helper.setTo(to);
-                helper.setSubject(subject);
-                helper.setText(html, true);
-                mailSender.send(message);
-                System.out.println("[Email sent] " + subject + " → " + to);
+                String body = """
+                    {
+                      "sender": {"name": "ShopEasy", "email": "%s"},
+                      "to": [{"email": "%s", "name": "%s"}],
+                      "subject": "%s",
+                      "htmlContent": %s
+                    }
+                    """.formatted(
+                        senderEmail,
+                        toEmail,
+                        toName.replace("\"", "\\\""),
+                        subject,
+                        toJson(html)
+                    );
+
+                HttpClient client = HttpClient.newHttpClient();
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create("https://api.brevo.com/v3/smtp/email"))
+                        .header("Content-Type", "application/json")
+                        .header("api-key", brevoApiKey)
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build();
+
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+                if (response.statusCode() == 201) {
+                    System.out.println("[Email sent] " + subject + " → " + toEmail);
+                } else {
+                    System.err.println("[Email failed] Status " + response.statusCode() + ": " + response.body());
+                }
             } catch (Exception e) {
                 System.err.println("[Email failed] " + e.getMessage());
             }
         }).start();
+    }
+
+    // Escape HTML into a valid JSON string value
+    private String toJson(String html) {
+        return "\"" + html
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "")
+                .replace("\t", "\\t")
+                + "\"";
     }
 
     private String buildVerificationHtml(String name, String verifyUrl) {
@@ -78,14 +105,13 @@ public class EmailService {
                 <div style="padding:40px 32px;">
                   <h2 style="color:#1e293b;margin:0 0 8px;font-size:1.3rem;">Hello, %s!</h2>
                   <p style="color:#64748b;margin:0 0 28px;line-height:1.6;">
-                    Thanks for signing up. Click the button below to verify your email address and start shopping.
+                    Thanks for signing up. Click the button below to verify your email and start shopping.
                   </p>
                   <a href="%s" style="display:inline-block;background:#2563eb;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:0.95rem;">
                     Verify My Email
                   </a>
                   <p style="color:#94a3b8;margin:28px 0 0;font-size:0.78rem;line-height:1.5;">
-                    If you didn't create a ShopEasy account, you can safely ignore this email.<br>
-                    This link expires in 24 hours.
+                    If you didn't create a ShopEasy account, ignore this email.
                   </p>
                 </div>
               </div>
@@ -94,58 +120,36 @@ public class EmailService {
             """.formatted(name, verifyUrl);
     }
 
-    private String buildOrderConfirmationHtml(String name, Order order) {
+    private String buildOrderHtml(String name, Order order) {
         StringBuilder rows = new StringBuilder();
         for (OrderItem item : order.getOrderItems()) {
-            rows.append("""
-                <tr>
-                  <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;color:#1e293b;">%s</td>
-                  <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:center;color:#64748b;">×%d</td>
-                  <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;color:#1e293b;">$%.2f</td>
-                </tr>
-                """.formatted(
-                    item.getProduct().getName(),
-                    item.getQuantity(),
-                    item.getPriceAtPurchase() * item.getQuantity()
-                ));
+            rows.append("<tr>")
+                .append("<td style='padding:10px 0;border-bottom:1px solid #f1f5f9;'>").append(item.getProduct().getName()).append("</td>")
+                .append("<td style='padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:center;'>x").append(item.getQuantity()).append("</td>")
+                .append("<td style='padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;'>$")
+                .append(String.format("%.2f", item.getPriceAtPurchase() * item.getQuantity())).append("</td>")
+                .append("</tr>");
         }
 
         return """
             <!DOCTYPE html>
             <html>
             <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8fafc;margin:0;padding:40px 20px;">
-              <div style="max-width:560px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;">
+              <div style="max-width:560px;margin:0 auto;background:white;border-radius:12px;border:1px solid #e2e8f0;">
                 <div style="background:#2563eb;padding:28px 32px;">
                   <h1 style="color:white;margin:0;font-size:1.4rem;font-weight:700;">ShopEasy</h1>
                 </div>
                 <div style="padding:36px 32px;">
-                  <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px 20px;margin-bottom:28px;">
-                    <p style="margin:0;color:#166534;font-weight:600;font-size:1rem;">Your order has been confirmed!</p>
-                  </div>
-                  <p style="color:#64748b;margin:0 0 24px;">Hi %s, thanks for your purchase. Here's a summary of your order:</p>
-                  <div style="background:#f8fafc;border-radius:8px;padding:20px;margin-bottom:20px;">
-                    <p style="margin:0 0 4px;font-size:0.8rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Order ID</p>
-                    <p style="margin:0;font-weight:700;font-size:1.1rem;color:#1e293b;">#%d</p>
-                  </div>
-                  <table style="width:100%;border-collapse:collapse;">
-                    <thead>
-                      <tr>
-                        <th style="text-align:left;padding-bottom:8px;color:#94a3b8;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Item</th>
-                        <th style="text-align:center;padding-bottom:8px;color:#94a3b8;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Qty</th>
-                        <th style="text-align:right;padding-bottom:8px;color:#94a3b8;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      %s
-                    </tbody>
+                  <p style="color:#64748b;margin:0 0 24px;">Hi %s, your order is confirmed!</p>
+                  <p style="margin:0 0 4px;font-size:0.8rem;color:#94a3b8;">ORDER ID</p>
+                  <p style="margin:0 0 24px;font-weight:700;font-size:1.1rem;">#%d</p>
+                  <table style="width:100%%;border-collapse:collapse;">
+                    <tbody>%s</tbody>
                   </table>
                   <div style="margin-top:16px;padding-top:16px;border-top:2px solid #e2e8f0;display:flex;justify-content:space-between;">
-                    <span style="font-weight:700;font-size:1rem;color:#1e293b;">Order Total</span>
-                    <span style="font-weight:700;font-size:1.1rem;color:#2563eb;">$%.2f</span>
+                    <span style="font-weight:700;">Total</span>
+                    <span style="font-weight:700;color:#2563eb;">$%.2f</span>
                   </div>
-                  <p style="color:#94a3b8;margin:32px 0 0;font-size:0.8rem;text-align:center;">
-                    Payment processed via ShopEasy Payments · Status: CONFIRMED
-                  </p>
                 </div>
               </div>
             </body>
